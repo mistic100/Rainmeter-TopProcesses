@@ -8,37 +8,38 @@ namespace PluginTopProcesses
         private const string PROC_NAME = "Name";
         private const string PROC_ID = "IDProcess";
         private const string PROC_TIME = "PercentProcessorTime";
-        private const string PROC_MEMORY = "WorkingSetPrivate";
-
-        //: Anything including %pName %pID %CPU %Memory
-        private const string FORMAT_NAME = "%pName";
-        private const string FORMAT_ID = "%pID";
-        private const string FORMAT_CPU_PERCENT = "%CPU";
-        private const string FORMAT_MEMORY = "%Memory";
-        private const string FORMAT_BEGIN_SAMPLE = "%StartSample";
-        private const string FORMAT_END_SAMPLE = "%EndSample";
-
-        private string[] _formatBytes = new string[] { "B", "KB", "MB", "GB" };
-
+        private const string PROC_MEMORY_OLD = "WorkingSet";
+        private const string PROC_MEMORY_NEW = "WorkingSetPrivate";
         private const string TIME_STAMP = "TimeStamp_Sys100NS";
+
+        public const string FORMAT_NAME = "%pName";
+        public const string FORMAT_ID = "%pID";
+        public const string FORMAT_CPU_PERCENT = "%CPU";
+        public const string FORMAT_CPU_RAW = "%RawCPU";
+        public const string FORMAT_MEMORY = "%Memory";
+        public const string FORMAT_MEMORY_RAW = "%RawMemory";
+        public const string FORMAT_BEGIN_SAMPLE = "%StartSample";
+        public const string FORMAT_END_SAMPLE = "%EndSample";
+
         public string Name;
         public int ProcessId;
         public Int64 PreviousProcTime;
         public Int64 CurrentProcTime;
         public Int64 PreviousTimeStamp;
         public Int64 CurrentTimeStamp;
-        private Int64 _currentMemory;
-        public Int64 CurrentMemory
-        {
-            get { return _currentMemory; }
-            set { _currentMemory = value; }
-        }
+        public Int64 CurrentMemory;
+        public double PercentProc;
 
-        private double _percentProc;
-        public double PercentProc
+        private static string WorkingSet()
         {
-            get { return _percentProc; }
-            set { _percentProc = value; }
+            if (Environment.OSVersion.Version.Major > 5)
+            {
+                return PROC_MEMORY_NEW;
+            }
+            else
+            {
+                return PROC_MEMORY_OLD;
+            }
         }
 
         public Performance(ManagementObject proc)
@@ -48,14 +49,14 @@ namespace PluginTopProcesses
 
         public void Update(ManagementObject proc)
         {
-            PreviousProcTime = CurrentProcTime;
-            PreviousTimeStamp = CurrentTimeStamp;
-            Name = Convert.ToString(proc.GetPropertyValue(PROC_NAME));
-            CurrentProcTime = Convert.ToInt64(proc.GetPropertyValue(PROC_TIME));
-            CurrentTimeStamp = Convert.ToInt64(proc.GetPropertyValue(TIME_STAMP));
-            CurrentMemory = Convert.ToInt64(proc.GetPropertyValue(PROC_MEMORY));
-            ProcessId = Convert.ToInt32(proc.GetPropertyValue(PROC_ID));
-            CalculateProcPercent();
+            this.PreviousProcTime = this.CurrentProcTime;
+            this.PreviousTimeStamp = this.CurrentTimeStamp;
+            this.Name = Convert.ToString(proc.GetPropertyValue(PROC_NAME));
+            this.CurrentProcTime = Convert.ToInt64(proc.GetPropertyValue(PROC_TIME));
+            this.CurrentTimeStamp = Convert.ToInt64(proc.GetPropertyValue(TIME_STAMP));
+            this.CurrentMemory = Convert.ToInt64(proc.GetPropertyValue(WorkingSet()));
+            this.ProcessId = Convert.ToInt32(proc.GetPropertyValue(PROC_ID));
+            this.CalculateProcPercent();
         }
 
         public override bool Equals(object obj)
@@ -70,81 +71,40 @@ namespace PluginTopProcesses
                 ManagementObject you = (ManagementObject)obj;
                 return this.Name.Equals(you.GetPropertyValue(PROC_NAME)) && this.ProcessId.Equals(Convert.ToInt32(you.GetPropertyValue(PROC_ID)));
             }
-            return base.Equals(obj);
+            else
+            {
+                return base.Equals(obj);
+            }
         }
 
         public override string ToString()
         {
-            return string.Format("{0} ({1}): {2}% {3}", Name, ProcessId, PercentProc.ToString("0.0"), ToByteString(CurrentMemory));
+            return this.ToString(FORMAT_NAME + " (" + FORMAT_ID + "): " + FORMAT_CPU_PERCENT + "% " + FORMAT_MEMORY);
         }
 
         public string ToString(string format)
         {
-            format = ReplaceString(format, FORMAT_CPU_PERCENT, PercentProc.ToString("0.0"));
-            format = ReplaceString(format, FORMAT_ID, ProcessId.ToString());
-            format = ReplaceString(format, FORMAT_MEMORY, ToByteString(CurrentMemory));
-            format = ReplaceString(format, FORMAT_NAME, Name);
-            format = ReplaceString(format, FORMAT_BEGIN_SAMPLE, PreviousTimeStamp.ToString());
-            format = ReplaceString(format, FORMAT_END_SAMPLE, CurrentTimeStamp.ToString());
+            double PercentProcRaw = this.PercentProc * 100;
+            format = Utils.ReplaceString(format, FORMAT_CPU_PERCENT, this.PercentProc.ToString("0.0"));
+            format = Utils.ReplaceString(format, FORMAT_CPU_RAW, PercentProcRaw.ToString());
+            format = Utils.ReplaceString(format, FORMAT_ID, this.ProcessId.ToString());
+            format = Utils.ReplaceString(format, FORMAT_MEMORY, Utils.ToByteString(this.CurrentMemory));
+            format = Utils.ReplaceString(format, FORMAT_MEMORY_RAW, this.CurrentMemory.ToString());
+            format = Utils.ReplaceString(format, FORMAT_NAME, this.Name);
+            format = Utils.ReplaceString(format, FORMAT_BEGIN_SAMPLE, this.PreviousTimeStamp.ToString());
+            format = Utils.ReplaceString(format, FORMAT_END_SAMPLE, this.CurrentTimeStamp.ToString());
             return format;
-        }
-
-        private string ReplaceString(string format, string key, string measure)
-        {
-            int startIndex = format.IndexOf(key);
-            if (format.IndexOf("s(", StringComparison.CurrentCultureIgnoreCase) == startIndex - 2)
-            {
-                startIndex = startIndex - 2;
-                int endIndex = format.IndexOf(")", startIndex);
-                string fullKey = format.Substring(startIndex, endIndex - startIndex + 1);
-                string[] fullKeySplit = fullKey.Replace(" ", "").Split(new char[] { ',', ')', '(' });
-
-                int subStrStart;
-                int subStrEnd;
-                if (!Int32.TryParse(fullKeySplit[2], out subStrStart) || !Int32.TryParse(fullKeySplit[3], out subStrEnd))
-                {
-                    subStrStart = 0;
-                    subStrEnd = measure.Length;
-                }
-                else
-                {
-                    if (subStrStart < 0) subStrStart = 0;
-                    if (subStrStart >= measure.Length) subStrStart = measure.Length - 1;
-                    if (subStrEnd < 0) subStrEnd = 0;
-                    if (subStrEnd >= measure.Length) subStrEnd = measure.Length - 1;
-                }
-                format = format.Replace(format.Substring(startIndex, endIndex - startIndex + 1), measure.Substring(subStrStart, subStrEnd - subStrStart + 1));
-            }
-            else
-            {
-                format = format.Replace(key, measure);
-            }
-            return format;
-        }
-
-        private string ToByteString(Int64 byteNum)
-        {
-            for (int i = _formatBytes.Length; i > 0; i--)
-            {
-                if (byteNum > Math.Pow(1024.0, i))
-                {
-                    return String.Format("{0:0.00 " + _formatBytes[i] + "}", (double)byteNum / Math.Pow(1024, i));
-                }
-            }
-
-            return byteNum.ToString() + " " + _formatBytes[0];
-
         }
 
         private void CalculateProcPercent()
         {
-            if (PreviousProcTime > 0 && PreviousTimeStamp > 0)
+            if (this.PreviousProcTime > 0 && this.PreviousTimeStamp > 0)
             {
-                PercentProc = (double)(CurrentProcTime - PreviousProcTime) / (CurrentTimeStamp - PreviousTimeStamp) * 100 / Environment.ProcessorCount;
+                this.PercentProc = (double)(this.CurrentProcTime - this.PreviousProcTime) / (this.CurrentTimeStamp - this.PreviousTimeStamp) * 100 / Environment.ProcessorCount;
             }
             else
             {
-                PercentProc = 0;
+                this.PercentProc = 0;
             }
         }
     }
