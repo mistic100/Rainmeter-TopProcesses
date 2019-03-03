@@ -11,9 +11,10 @@ using System.Runtime.CompilerServices;
 // 2.0.0.0 = Ported to new SDK, Setting parsing rewrite, fixed sorting %Total, Less CPU usage on each update, using Private Working Set for Memory (same as taskmgr)
 // 2.2.0.1 = Compatiblity with Rainmeter 3.2
 // 2.2.1.0 = Added %RawCPU ad %RawMemory formats - Fix error in ReplaceString
+// 2.2.2.0 = Windows 10 compatibility
 
-[assembly: AssemblyCopyright("© 2012 - Chad Voelker & Grant Pannell, © 2015 - Damien \"Mistic\" Sorel")]
-[assembly: AssemblyVersion("2.2.1.0")]
+[assembly: AssemblyCopyright("© 2012 - Chad Voelker & Grant Pannell, © 2015-2019 - Damien \"Mistic\" Sorel")]
+[assembly: AssemblyVersion("2.2.2.0")]
 [assembly: AssemblyTitleAttribute("TopProcesses")]
 [assembly: AssemblyDescriptionAttribute("Show n-number of top processes by either memory or CPU consumption.")]
 

@@ -15,6 +15,9 @@ namespace PluginTopProcesses
             TopMemory
         }
 
+        // Rainmeter API
+        internal Rainmeter.API api;
+        internal IntPtr rm;
         // Measure Name
         internal string Name;
         // Skin Pointer
@@ -44,7 +47,13 @@ namespace PluginTopProcesses
         // Last data output
         private string lastData = string.Empty;
 
-        internal void Reload(Rainmeter.API api, ref double maxValue)
+        public Measure(IntPtr rm)
+        {
+            this.rm = rm;
+            this.api = new Rainmeter.API(rm);
+        }
+
+        internal void Reload()
         {
             // Pointers / name
             this.Name = api.GetMeasureName();
@@ -80,13 +89,13 @@ namespace PluginTopProcesses
                 string globalIgnoredProcesses = api.ReadString("GlobalIgnoredProcesses", string.Empty);
                 if (!string.IsNullOrEmpty(globalIgnoredProcesses))
                 {
-                    bool firstTime = true;
+                    bool first = true;
                     foreach (string procName in globalIgnoredProcesses.Split(new char[] { '|' }))
                     {
-                        if (firstTime)
+                        if (first)
                         {
                             this.QueryString += " WHERE";
-                            firstTime = false;
+                            first = false;
                         }
                         else
                         {
@@ -126,9 +135,8 @@ namespace PluginTopProcesses
                 string[] procNums = procNum.Split(new char[] { '-' });
                 if (procNums.Length == 1)
                 {
-                    int num = Convert.ToInt32(procNums[0]);
-                    this.StartProcNum = num;
-                    this.EndProcNum = num;
+                    this.StartProcNum = Convert.ToInt32(procNums[0]);
+                    this.EndProcNum = Convert.ToInt32(procNums[0]);
                 }
                 else if (procNums.Length == 2)
                 {
@@ -145,25 +153,23 @@ namespace PluginTopProcesses
                 // Get list of processes
                 List<Performance> iterationList = new List<Performance>();
                 using (ManagementObjectSearcher managementObjectSearcher = new ManagementObjectSearcher(this.QueryString))
+                using (ManagementObjectCollection managementObjectCollection = managementObjectSearcher.Get())
+                using (ManagementObjectCollection.ManagementObjectEnumerator enumerator = managementObjectCollection.GetEnumerator())
                 {
-                    ManagementObjectCollection managementObjectCollection = managementObjectSearcher.Get();
-                    using (ManagementObjectCollection.ManagementObjectEnumerator enumerator = managementObjectCollection.GetEnumerator())
+                    while (enumerator.MoveNext())
                     {
-                        while (enumerator.MoveNext())
+                        ManagementObject managementObject = (ManagementObject)enumerator.Current;
+                        Performance performance = this._cpuList.Find((Performance p) => p.Equals(managementObject));
+                        if (performance == null)
                         {
-                            ManagementObject managementObject = (ManagementObject)enumerator.Current;
-                            Performance performance = this._cpuList.Find((Performance p) => p.Equals(managementObject));
-                            if (performance == null)
-                            {
-                                performance = new Performance(managementObject);
-                                this._cpuList.Add(performance);
-                            }
-                            else
-                            {
-                                performance.Update(managementObject);
-                            }
-                            iterationList.Add(performance);
+                            performance = new Performance(managementObject);
+                            this._cpuList.Add(performance);
                         }
+                        else
+                        {
+                            performance.Update(managementObject);
+                        }
+                        iterationList.Add(performance);
                     }
                 }
 
@@ -178,8 +184,8 @@ namespace PluginTopProcesses
                 this._memList.AddRange(this._cpuList);
 
                 // Sort by CPU usage and by memory
-                this._cpuList.Sort((Performance p1, Performance p2) => -1 * p1.PercentProc.CompareTo(p2.PercentProc));
-                this._memList.Sort((Performance p1, Performance p2) => -1 * p1.CurrentMemory.CompareTo(p2.CurrentMemory));
+                this._cpuList.Sort((Performance p1, Performance p2) => p2.PercentProc.CompareTo(p1.PercentProc));
+                this._memList.Sort((Performance p1, Performance p2) => p2.CurrentMemory.CompareTo(p1.CurrentMemory));
             }
         }
 
@@ -301,7 +307,7 @@ namespace PluginTopProcesses
         [DllExport]
         public unsafe static void Initialize(ref IntPtr data, IntPtr rm)
         {
-            Plugin.Measures.Add(data, new Measure());
+            Plugin.Measures.Add(data, new Measure(rm));
         }
 
         [DllExport]
@@ -313,13 +319,30 @@ namespace PluginTopProcesses
         [DllExport]
         public unsafe static void Reload(IntPtr data, IntPtr rm, ref double maxValue)
         {
-            Plugin.Measures[data].Reload(new Rainmeter.API(rm), ref maxValue);
+            Measure measure = Plugin.Measures[data];
+            try
+            {
+                measure.Reload();
+            }
+            catch (Exception e)
+            {
+                API.LogF(measure.rm, API.LogType.Error, "Reload error {0}", e.Message);
+            }
         }
 
         [DllExport]
         public unsafe static double Update(IntPtr data)
         {
-            return Plugin.Measures[data].Update();
+            Measure measure = Plugin.Measures[data];
+            try
+            {
+                return measure.Update();
+            }
+            catch (Exception e)
+            {
+                API.LogF(measure.rm, API.LogType.Error, "Update error {0}", e.Message);
+                return 0.0;
+            }
         }
 
         [DllExport]

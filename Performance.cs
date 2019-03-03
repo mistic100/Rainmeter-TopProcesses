@@ -6,7 +6,8 @@ namespace PluginTopProcesses
     public class Performance
     {
         private const string PROC_NAME = "Name";
-        private const string PROC_ID = "IDProcess";
+        private const string PROC_ID_OLD = "IDProcess";
+        private const string PROC_ID_NEW = "ProcessID";
         private const string PROC_TIME = "PercentProcessorTime";
         private const string PROC_MEMORY_OLD = "WorkingSet";
         private const string PROC_MEMORY_NEW = "WorkingSetPrivate";
@@ -30,7 +31,7 @@ namespace PluginTopProcesses
         public Int64 CurrentMemory;
         public double PercentProc;
 
-        private static string WorkingSet()
+        private static string PropWorkingSet()
         {
             if (Environment.OSVersion.Version.Major > 5)
             {
@@ -39,6 +40,18 @@ namespace PluginTopProcesses
             else
             {
                 return PROC_MEMORY_OLD;
+            }
+        }
+
+        private static string PropProcessId()
+        {
+            if (Environment.OSVersion.Version.Major >= 10)
+            {
+                return PROC_ID_NEW;
+            }
+            else
+            {
+                return PROC_ID_OLD;
             }
         }
 
@@ -54,8 +67,8 @@ namespace PluginTopProcesses
             this.Name = Convert.ToString(proc.GetPropertyValue(PROC_NAME));
             this.CurrentProcTime = Convert.ToInt64(proc.GetPropertyValue(PROC_TIME));
             this.CurrentTimeStamp = Convert.ToInt64(proc.GetPropertyValue(TIME_STAMP));
-            this.CurrentMemory = Convert.ToInt64(proc.GetPropertyValue(WorkingSet()));
-            this.ProcessId = Convert.ToInt32(proc.GetPropertyValue(PROC_ID));
+            this.CurrentMemory = Convert.ToInt64(proc.GetPropertyValue(PropWorkingSet()));
+            this.ProcessId = Convert.ToInt32(proc.GetPropertyValue(PropProcessId()));
             this.CalculateProcPercent();
         }
 
@@ -69,7 +82,7 @@ namespace PluginTopProcesses
             else if (object.ReferenceEquals(obj.GetType(), typeof(ManagementObject)))
             {
                 ManagementObject you = (ManagementObject)obj;
-                return this.Name.Equals(you.GetPropertyValue(PROC_NAME)) && this.ProcessId.Equals(Convert.ToInt32(you.GetPropertyValue(PROC_ID)));
+                return this.Name.Equals(you.GetPropertyValue(PROC_NAME)) && this.ProcessId.Equals(Convert.ToInt32(you.GetPropertyValue(PropProcessId())));
             }
             else
             {

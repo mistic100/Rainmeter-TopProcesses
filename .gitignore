@@ -1,4 +1,8 @@
-/x32
-/x64
+/PluginDDLS/32bit/*
+!/PluginDDLS/32bit/TopProcesses.dll
+/PluginDDLS/64bit/*
+!/PluginDDLS/64bit/TopProcesses.dll
 /obj
-*.suo
+/.vs
+/*.suo
+/*.csproj.user
