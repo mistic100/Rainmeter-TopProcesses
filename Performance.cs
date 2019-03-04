@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Management;
+using System.Collections.Generic;
 
 namespace PluginTopProcesses
 {
     public class Performance
     {
-        private const string PROC_NAME = "Name";
+        public const string PROC_NAME = "Name";
         private const string PROC_ID_OLD = "IDProcess";
         private const string PROC_ID_NEW = "ProcessID";
         private const string PROC_TIME = "PercentProcessorTime";
@@ -19,8 +20,36 @@ namespace PluginTopProcesses
         public const string FORMAT_CPU_RAW = "%RawCPU";
         public const string FORMAT_MEMORY = "%Memory";
         public const string FORMAT_MEMORY_RAW = "%RawMemory";
-        public const string FORMAT_BEGIN_SAMPLE = "%StartSample";
-        public const string FORMAT_END_SAMPLE = "%EndSample";
+
+        public class Data
+        {
+            public string Name;
+            public int ProcessId;
+            public Int64 Memory;
+            public double PercentProc;
+
+            public void Add(Data data)
+            {
+                this.Memory+= data.Memory;
+                this.PercentProc += data.PercentProc;
+            }
+
+            public override string ToString()
+            {
+                return this.ToString(FORMAT_NAME + " (" + FORMAT_ID + "): " + FORMAT_CPU_PERCENT + "% " + FORMAT_MEMORY);
+            }
+
+            public string ToString(string format)
+            {
+                format = Utils.ReplaceString(format, FORMAT_NAME, this.Name);
+                format = Utils.ReplaceString(format, FORMAT_ID, this.ProcessId.ToString());
+                format = Utils.ReplaceString(format, FORMAT_CPU_PERCENT, this.PercentProc.ToString("0.0"));
+                format = Utils.ReplaceString(format, FORMAT_CPU_RAW, (this.PercentProc * 100).ToString());
+                format = Utils.ReplaceString(format, FORMAT_MEMORY, Utils.ToByteString(this.Memory));
+                format = Utils.ReplaceString(format, FORMAT_MEMORY_RAW, this.Memory.ToString());
+                return format;
+            }
+        }
 
         public string Name;
         public int ProcessId;
@@ -72,6 +101,16 @@ namespace PluginTopProcesses
             this.CalculateProcPercent();
         }
 
+        public Data ToData()
+        {
+            Data data = new Data();
+            data.Name = this.Name;
+            data.ProcessId = this.ProcessId;
+            data.PercentProc = this.PercentProc;
+            data.Memory = this.CurrentMemory;
+            return data;
+        }
+
         public override bool Equals(object obj)
         {
             if (object.ReferenceEquals(obj.GetType(), typeof(Performance)))
@@ -92,21 +131,7 @@ namespace PluginTopProcesses
 
         public override string ToString()
         {
-            return this.ToString(FORMAT_NAME + " (" + FORMAT_ID + "): " + FORMAT_CPU_PERCENT + "% " + FORMAT_MEMORY);
-        }
-
-        public string ToString(string format)
-        {
-            double PercentProcRaw = this.PercentProc * 100;
-            format = Utils.ReplaceString(format, FORMAT_CPU_PERCENT, this.PercentProc.ToString("0.0"));
-            format = Utils.ReplaceString(format, FORMAT_CPU_RAW, PercentProcRaw.ToString());
-            format = Utils.ReplaceString(format, FORMAT_ID, this.ProcessId.ToString());
-            format = Utils.ReplaceString(format, FORMAT_MEMORY, Utils.ToByteString(this.CurrentMemory));
-            format = Utils.ReplaceString(format, FORMAT_MEMORY_RAW, this.CurrentMemory.ToString());
-            format = Utils.ReplaceString(format, FORMAT_NAME, this.Name);
-            format = Utils.ReplaceString(format, FORMAT_BEGIN_SAMPLE, this.PreviousTimeStamp.ToString());
-            format = Utils.ReplaceString(format, FORMAT_END_SAMPLE, this.CurrentTimeStamp.ToString());
-            return format;
+            return this.ToData().ToString();
         }
 
         private void CalculateProcPercent()

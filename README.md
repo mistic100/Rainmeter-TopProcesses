@@ -30,6 +30,10 @@ Plugin=Plugins\TopProcesses.dll
 ; 1 = Yes, 0 = No
 ReQuery=1
 
+; Merge values of processes with the same name
+; e.g. values of "firefox#1" and "firefox#2" are merged with "firefox"
+Dedupe=1
+
 ; Pipe-delimited processess to exclude from the list (can handle wildcards, use the % or * character)
 ; GlobalIgnoredProcesses is MORE efficient than SpecificIgnoredProcesses as it filters globally (at the Perfmon query)
 ; If you use GlobalIgnoredProcesses to filter, processes will be excluded from all measures using the TopProcesses plugin

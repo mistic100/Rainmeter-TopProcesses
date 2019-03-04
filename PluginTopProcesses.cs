@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Rainmeter;
 
 namespace PluginTopProcesses
@@ -28,6 +29,8 @@ namespace PluginTopProcesses
         private bool ReQuery = false;
         // Ignored processes per measure
         internal string SpecificIgnoredProcesses;
+        // De-duplicate multiple processes
+        internal bool Dedupe = true;
         // Output Format
         internal string Format;
         // Start Process
@@ -37,9 +40,11 @@ namespace PluginTopProcesses
 
         // Global Query
         internal string QueryString;
+        // Performance computers
+        internal List<Performance> _perfList;
         // Sorted lists of processes
-        internal List<Performance> _cpuList;
-        internal List<Performance> _memList;
+        internal List<Performance.Data> _cpuList;
+        internal List<Performance.Data> _memList;
         // Pointer of measure with ReQuery = true
         private IntPtr DataProvider;
         // Found DataProvider, if false, no measure with ReQuery = true
@@ -64,6 +69,12 @@ namespace PluginTopProcesses
             if (reQuery.Equals("1") || reQuery.Equals("true", StringComparison.InvariantCultureIgnoreCase))
             {
                 this.ReQuery = true;
+
+                string dedupe = api.ReadString("Dedupe", string.Empty);
+                if (dedupe.Equals("0") || dedupe.Equals("false", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    this.Dedupe = false;
+                }
             }
 
             // Metric Type
@@ -106,8 +117,9 @@ namespace PluginTopProcesses
                 }
 
                 // Create lists only if data provider
-                this._cpuList = new List<Performance>();
-                this._memList = new List<Performance>();
+                this._perfList = new List<Performance>();
+                this._cpuList = new List<Performance.Data>();
+                this._memList = new List<Performance.Data>();
             }
 
             // Find the measure in this skin with ReQuery=1
@@ -148,7 +160,7 @@ namespace PluginTopProcesses
 
         internal void RefreshData()
         {
-            lock (this._cpuList)
+            lock (this._perfList)
             {
                 // Get list of processes
                 List<Performance> iterationList = new List<Performance>();
@@ -159,11 +171,11 @@ namespace PluginTopProcesses
                     while (enumerator.MoveNext())
                     {
                         ManagementObject managementObject = (ManagementObject)enumerator.Current;
-                        Performance performance = this._cpuList.Find((Performance p) => p.Equals(managementObject));
+                        Performance performance = this._perfList.Find((Performance p) => p.Equals(managementObject));
                         if (performance == null)
                         {
                             performance = new Performance(managementObject);
-                            this._cpuList.Add(performance);
+                            this._perfList.Add(performance);
                         }
                         else
                         {
@@ -174,18 +186,45 @@ namespace PluginTopProcesses
                 }
 
                 // Remove any processes that have been killed
-                foreach (Performance current in this._cpuList.FindAll((Performance p) => !iterationList.Contains(p)))
+                foreach (Performance current in this._perfList.FindAll((Performance p) => !iterationList.Contains(p)))
                 {
-                    this._cpuList.Remove(current);
+                    this._perfList.Remove(current);
                 }
+            }
 
-                // Copy to memory list
+            // Convert to data and dedupe
+            Dictionary<string, Performance.Data> perfData = new Dictionary<string, Performance.Data>();
+            foreach (Performance current in this._perfList)
+            {
+                string name = current.Name;
+                if (this.Dedupe)
+                {
+                    name = Regex.Replace(name, @"#[0-9]+$", "");
+                }
+                if (!perfData.ContainsKey(name))
+                {
+                    perfData[name] = current.ToData();
+                }
+                else
+                {
+                    perfData[name].Add(current.ToData());
+                }
+            }
+
+            // Copy to CPU list and sort
+            lock (this._cpuList)
+            {
+                this._cpuList.Clear();
+                this._cpuList.AddRange(perfData.Values);
+                this._cpuList.Sort((Performance.Data p1, Performance.Data p2) => p2.PercentProc.CompareTo(p1.PercentProc));
+            }
+
+            // Copy to memory list and sort
+            lock (this._memList)
+            { 
                 this._memList.Clear();
-                this._memList.AddRange(this._cpuList);
-
-                // Sort by CPU usage and by memory
-                this._cpuList.Sort((Performance p1, Performance p2) => p2.PercentProc.CompareTo(p1.PercentProc));
-                this._memList.Sort((Performance p1, Performance p2) => p2.CurrentMemory.CompareTo(p1.CurrentMemory));
+                this._memList.AddRange(perfData.Values);
+                this._memList.Sort((Performance.Data p1, Performance.Data p2) => p2.Memory.CompareTo(p1.Memory));
             }
         }
 
@@ -201,8 +240,8 @@ namespace PluginTopProcesses
             if (this.HasData)
             {
                 Measure measure = Plugin.Measures[this.DataProvider];
-                List<Performance> cpuList = measure._cpuList;
-                List<Performance> memList = measure._memList;
+                List<Performance.Data> cpuList = measure._cpuList;
+                List<Performance.Data> memList = measure._memList;
 
                 // Return numeric data if only one raw data
                 if (this.Format.Equals(Performance.FORMAT_CPU_RAW) && this.StartProcNum.Equals(this.EndProcNum))
@@ -211,7 +250,7 @@ namespace PluginTopProcesses
                 }
                 if (this.Format.Equals(Performance.FORMAT_MEMORY_RAW) && this.StartProcNum.Equals(this.EndProcNum))
                 {
-                    return memList[this.StartProcNum].CurrentMemory;
+                    return memList[this.StartProcNum].Memory;
                 }
 
                 // Or build the output string
