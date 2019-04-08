@@ -29,8 +29,6 @@ namespace PluginTopProcesses
         private bool ReQuery = false;
         // Ignored processes per measure
         internal string SpecificIgnoredProcesses;
-        // De-duplicate multiple processes
-        internal bool Dedupe = true;
         // Output Format
         internal string Format;
         // Start Process
@@ -38,13 +36,8 @@ namespace PluginTopProcesses
         // End Process
         internal int EndProcNum = 5;
 
-        // Global Query
-        internal string QueryString;
-        // Performance computers
-        internal List<Performance> _perfList;
-        // Sorted lists of processes
-        internal List<Performance.Data> _cpuList;
-        internal List<Performance.Data> _memList;
+        // Object used to query the database
+        private DataThread DataThread;
         // Pointer of measure with ReQuery = true
         private IntPtr DataProvider;
         // Found DataProvider, if false, no measure with ReQuery = true
@@ -66,15 +59,9 @@ namespace PluginTopProcesses
 
             // Measure does the data refresh
             string reQuery = api.ReadString("ReQuery", string.Empty);
-            if (reQuery.Equals("1") || reQuery.Equals("true", StringComparison.InvariantCultureIgnoreCase))
+            if (reQuery.Equals("1") || reQuery.ToLowerInvariant().Equals("true"))
             {
                 this.ReQuery = true;
-
-                string dedupe = api.ReadString("Dedupe", string.Empty);
-                if (dedupe.Equals("0") || dedupe.Equals("false", StringComparison.InvariantCultureIgnoreCase))
-                {
-                    this.Dedupe = false;
-                }
             }
 
             // Metric Type
@@ -94,32 +81,23 @@ namespace PluginTopProcesses
             // If provides data
             if (this.ReQuery)
             {
-                this.QueryString = "SELECT * FROM Win32_PerfRawData_PerfProc_Process";
-
-                // Apply globally ignored processes to query
-                string globalIgnoredProcesses = api.ReadString("GlobalIgnoredProcesses", string.Empty);
-                if (!string.IsNullOrEmpty(globalIgnoredProcesses))
+                bool Dedupe = true;
+                string DedupeParam = api.ReadString("Dedupe", string.Empty);
+                if (DedupeParam.Equals("0") || DedupeParam.ToLowerInvariant().Equals("false"))
                 {
-                    bool first = true;
-                    foreach (string procName in globalIgnoredProcesses.Split(new char[] { '|' }))
-                    {
-                        if (first)
-                        {
-                            this.QueryString += " WHERE";
-                            first = false;
-                        }
-                        else
-                        {
-                            this.QueryString += " AND";
-                        }
-                        this.QueryString += " NOT Name LIKE '" + procName.Replace("*", "%").Replace("'", "''") + "'";
-                    }
+                    Dedupe = false;
                 }
 
-                // Create lists only if data provider
-                this._perfList = new List<Performance>();
-                this._cpuList = new List<Performance.Data>();
-                this._memList = new List<Performance.Data>();
+                bool Async = false;
+                string AsyncParam = api.ReadString("Async", string.Empty);
+                if (AsyncParam.Equals("1") || AsyncParam.ToLowerInvariant().Equals("true"))
+                {
+                    Async = true;
+                }
+
+                string GlobalIgnoredProcesses = api.ReadString("GlobalIgnoredProcesses", string.Empty);
+
+                this.DataThread = new DataThread(this.rm, Async, Dedupe, GlobalIgnoredProcesses);
             }
 
             // Find the measure in this skin with ReQuery=1
@@ -158,99 +136,43 @@ namespace PluginTopProcesses
             }
         }
 
-        internal void RefreshData()
-        {
-            lock (this._perfList)
-            {
-                // Get list of processes
-                List<Performance> iterationList = new List<Performance>();
-                using (ManagementObjectSearcher managementObjectSearcher = new ManagementObjectSearcher(this.QueryString))
-                using (ManagementObjectCollection managementObjectCollection = managementObjectSearcher.Get())
-                using (ManagementObjectCollection.ManagementObjectEnumerator enumerator = managementObjectCollection.GetEnumerator())
-                {
-                    while (enumerator.MoveNext())
-                    {
-                        ManagementObject managementObject = (ManagementObject)enumerator.Current;
-                        Performance performance = this._perfList.Find((Performance p) => p.Equals(managementObject));
-                        if (performance == null)
-                        {
-                            performance = new Performance(managementObject);
-                            this._perfList.Add(performance);
-                        }
-                        else
-                        {
-                            performance.Update(managementObject);
-                        }
-                        iterationList.Add(performance);
-                    }
-                }
-
-                // Remove any processes that have been killed
-                foreach (Performance current in this._perfList.FindAll((Performance p) => !iterationList.Contains(p)))
-                {
-                    this._perfList.Remove(current);
-                }
-            }
-
-            // Convert to data and dedupe
-            Dictionary<string, Performance.Data> perfData = new Dictionary<string, Performance.Data>();
-            foreach (Performance current in this._perfList)
-            {
-                string name = current.Name;
-                if (this.Dedupe)
-                {
-                    name = Regex.Replace(name, @"#[0-9]+$", "");
-                }
-                if (!perfData.ContainsKey(name))
-                {
-                    perfData[name] = current.ToData();
-                }
-                else
-                {
-                    perfData[name].Add(current.ToData());
-                }
-            }
-
-            // Copy to CPU list and sort
-            lock (this._cpuList)
-            {
-                this._cpuList.Clear();
-                this._cpuList.AddRange(perfData.Values);
-                this._cpuList.Sort((Performance.Data p1, Performance.Data p2) => p2.PercentProc.CompareTo(p1.PercentProc));
-            }
-
-            // Copy to memory list and sort
-            lock (this._memList)
-            { 
-                this._memList.Clear();
-                this._memList.AddRange(perfData.Values);
-                this._memList.Sort((Performance.Data p1, Performance.Data p2) => p2.Memory.CompareTo(p1.Memory));
-            }
-        }
-
         internal double Update()
         {
             // Do a refresh if ReQuery = 1
             if (this.ReQuery)
             {
-                this.RefreshData();
+                this.DataThread.Query();
             }
 
             // If found a measure with ReQuery = 1
             if (this.HasData)
             {
                 Measure measure = Plugin.Measures[this.DataProvider];
-                List<Performance.Data> cpuList = measure._cpuList;
-                List<Performance.Data> memList = measure._memList;
+                List<Performance.Data> cpuList = measure.DataThread.GetCpuList();
+                List<Performance.Data> memList = measure.DataThread.GetMemList();
 
                 // Return numeric data if only one raw data
                 if (this.Format.Equals(Performance.FORMAT_CPU_RAW) && this.StartProcNum.Equals(this.EndProcNum))
                 {
-                    return cpuList[this.StartProcNum].PercentProc * 100;
+                    if (this.StartProcNum >= cpuList.Count)
+                    {
+                        return 0.0;
+                    }
+                    else
+                    {
+                        return cpuList[this.StartProcNum].PercentProc * 100;
+                    }
                 }
                 if (this.Format.Equals(Performance.FORMAT_MEMORY_RAW) && this.StartProcNum.Equals(this.EndProcNum))
                 {
-                    return memList[this.StartProcNum].Memory;
+                    if (this.StartProcNum >= memList.Count)
+                    {
+                        return 0.0;
+                    }
+                    else
+                    {
+                        return memList[this.StartProcNum].Memory;
+                    }
                 }
 
                 // Or build the output string

@@ -4,10 +4,8 @@ TopProcesses.dll
 A Rainmeter plugin to show n-number of top processes by either memory or CPU consumption.
 
 The plugin was created by Chad Voelker and made compatible with Rainmeter 3.2 by Grant Pannell.
-
-The only source I found were for version 2.0.0, not compatible with Rainmeter 3.2. I decompiled the 2.2.0 DLL 
-in order to have a working base for the changes I needed for [Rainmeter-GalaxyS](https://github.com/mistic100/rainmeter-GalaxyS) 
-and correct a bug in the `Format` parser.
+The only source I found were for version 2.0.0, not compatible with Rainmeter 3.2. 
+I decompiled the 2.2.0 DLL in order to have a working base for future improvements.
 
 # Usage
 
@@ -26,13 +24,16 @@ Measure=Plugin
 Plugin=Plugins\TopProcesses.dll
 
 ; Indicates if this init entry should re-look at the process list
-; If you do more than one config entry, only ONE needs to do the ReQuery
+; If you have more than one config entry, only ONE needs to do the ReQuery
 ; 1 = Yes, 0 = No
 ReQuery=1
 
 ; Merge values of processes with the same name
 ; e.g. values of "firefox#1" and "firefox#2" are merged with "firefox"
 Dedupe=1
+
+; Run in asynchronous mode, see bellow
+Async=0
 
 ; Pipe-delimited processess to exclude from the list (can handle wildcards, use the % or * character)
 ; GlobalIgnoredProcesses is MORE efficient than SpecificIgnoredProcesses as it filters globally (at the Perfmon query)
@@ -62,9 +63,40 @@ MeterStyle=Style
 MeasureName=MeasureTopCPU
 ```
 
+
+## Asynchronous mode
+
+Querying the Windows management database is a expansive process and can cause micro-freezes in all your skins (Rainmeter is single-threaded).
+
+TopProcesses can query the database in a separated thread and provide the result afterward with the `Async=1` option.
+
+**When using this mode you should use child-measures to a lower update rate in order to have the most up-to-date info available.**
+
+This example runs the main measure in asynchronous mode every 5 seconds, and gets the result every 1 second with a child-measure.
+
+```ini
+[Rainmeter]
+Update=1000
+
+[MeasureTopMain]
+Measure=Plugin
+Plugin=Plugins\TopProcesses.dll
+ReQuery=1
+Async=1
+UpdateDivider=5
+
+[MeasureTopChild]
+Measure=Plugin
+Plugin=Plugins\TopProcesses.dll
+UpdateDivider=1
+ProcNums=0-3
+Format="%CPU%: %pName"
+```
+
+
 ## Advanced usage
 
-If you want more control on the data display (eg: number of decimals, decimal symbol) you can use the `%RawCPU` and `%RawMemory` formats. When used with a single process (`ProcNums=0`) these will return a numeric value which can be formatted as needed.
+If you want more control on the data display (eg: number of decimals, decimal symbol) you can use the `%RawCPU` and `%RawMemory` formats. When used with a single process (`ProcNums=0`, `ProcNums=1`, ...) these will return a numeric value which can be formatted as needed.
 
 The example bellow displays the top two processes by memory usage, with different color on the process names and Rainmeter's autoscale.
 
@@ -149,6 +181,7 @@ Y=0R
 W=150
 H=30
 ```
+
 
 # License
 
