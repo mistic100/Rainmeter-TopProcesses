@@ -1,8 +1,6 @@
 ﻿using Rainmeter;
 using System;
 using System.Collections.Generic;
-using System.Management;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
@@ -12,8 +10,8 @@ namespace PluginTopProcesses
     {
         // Rainmeter API
         internal IntPtr rm;
-        // Global Query
-        internal string QueryString;
+        // Ignored processes
+        internal List<Regex> GlobalIgnoredProcesses;
         // De-duplicate multiple processes
         internal bool Dedupe = true;
         // Async database read
@@ -34,25 +32,31 @@ namespace PluginTopProcesses
             this.PerfList = new List<Performance>();
             this.CpuList = new List<Performance.Data>();
             this.MemList = new List<Performance.Data>();
+            this.GlobalIgnoredProcesses = new List<Regex>();
 
-            this.QueryString = "SELECT * FROM Win32_PerfRawData_PerfProc_Process";
+            this.GlobalIgnoredProcesses.Add(new Regex("^Idle$"));
+            this.GlobalIgnoredProcesses.Add(new Regex("^_Total$"));
 
-            // Apply globally ignored processes to query
             if (!string.IsNullOrEmpty(GlobalIgnoredProcesses))
             {
-                bool first = true;
                 foreach (string procName in GlobalIgnoredProcesses.Split(new char[] { '|' }))
                 {
-                    if (first)
+                    if (procName.StartsWith("*") && procName.EndsWith("*"))
                     {
-                        this.QueryString += " WHERE";
-                        first = false;
+                        this.GlobalIgnoredProcesses.Add(new Regex(procName));
+                    }
+                    else if (procName.StartsWith("*"))
+                    {
+                        this.GlobalIgnoredProcesses.Add(new Regex(procName + "$"));
+                    }
+                    else if (procName.EndsWith("*"))
+                    {
+                        this.GlobalIgnoredProcesses.Add(new Regex("^" + procName));
                     }
                     else
                     {
-                        this.QueryString += " AND";
+                        this.GlobalIgnoredProcesses.Add(new Regex("^" + procName + "$"));
                     }
-                    this.QueryString += " NOT Name LIKE '" + procName.Replace("*", "%").Replace("'", "''") + "'";
                 }
             }
         }
@@ -86,34 +90,66 @@ namespace PluginTopProcesses
             }
         }
 
+        private bool IsIgnored(string procName)
+        {
+            foreach (Regex ignoredName in this.GlobalIgnoredProcesses)
+            {
+                if (ignoredName.IsMatch(procName))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         void DoQuery()
         {
             // Get list of processes
             List<Performance> iterationList = new List<Performance>();
             try
             {
-                using (ManagementObjectSearcher managementObjectSearcher = new ManagementObjectSearcher(this.QueryString))
-                using (ManagementObjectCollection managementObjectCollection = managementObjectSearcher.Get())
-                using (ManagementObjectCollection.ManagementObjectEnumerator enumerator = managementObjectCollection.GetEnumerator())
+                System.Diagnostics.Process proc = new System.Diagnostics.Process();
+                proc.StartInfo.FileName = "cmd";
+                proc.StartInfo.Arguments = "/c wmic path Win32_PerfRawData_PerfProc_Process get IDProcess, Name, PercentProcessorTime, TimeStamp_Sys100NS, WorkingSetPrivate";
+                proc.StartInfo.UseShellExecute = false;
+                proc.StartInfo.RedirectStandardOutput = true;
+                proc.StartInfo.CreateNoWindow = true;
+                proc.Start();
+
+                Regex regex = new Regex(@"([0-9]+) +(.+?) +([0-9]+) +([0-9]+) +([0-9]+)");
+
+                while (!proc.StandardOutput.EndOfStream)
                 {
-                    while (enumerator.MoveNext())
+                    string line = proc.StandardOutput.ReadLine();
+                    Match match = regex.Match(line);
+                    if (match.Groups.Count == 6)
                     {
-                        ManagementObject managementObject = (ManagementObject)enumerator.Current;
-                        Performance performance = this.PerfList.Find((Performance p) => p.Equals(managementObject));
-                        if (performance == null)
+                        int procId = int.Parse(match.Groups[1].Value);
+                        string procName = match.Groups[2].Value;
+                        Int64 procTime = Int64.Parse(match.Groups[3].Value);
+                        Int64 timestamp = Int64.Parse(match.Groups[4].Value);
+                        Int64 procMem = Int64.Parse(match.Groups[5].Value);
+
+                        if (!this.IsIgnored(procName))
                         {
-                            performance = new Performance(managementObject);
-                            this.PerfList.Add(performance);
+                            Performance performance = this.PerfList.Find((Performance p) => p.Name.Equals(procName) && p.ProcessId.Equals(procId));
+                            if (performance == null)
+                            {
+                                performance = new Performance(procId, procName, timestamp, procTime, procMem);
+                                this.PerfList.Add(performance);
+                            }
+                            else
+                            {
+                                performance.Update(timestamp, procTime, procMem);
+                            }
+
+                            iterationList.Add(performance);
                         }
-                        else
-                        {
-                            performance.Update(managementObject);
-                        }
-                        iterationList.Add(performance);
                     }
                 }
             }
-            catch(ManagementException e)
+            catch (Exception e)
             {
                 API.LogF(this.rm, API.LogType.Warning, "TopProcesses: {0}", e.Message);
             }

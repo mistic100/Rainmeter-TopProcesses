@@ -1,19 +1,10 @@
 ﻿using System;
-using System.Management;
 using System.Collections.Generic;
 
 namespace PluginTopProcesses
 {
     public class Performance
     {
-        public const string PROC_NAME = "Name";
-        private const string PROC_ID_OLD = "IDProcess";
-        private const string PROC_ID_NEW = "ProcessID";
-        private const string PROC_TIME = "PercentProcessorTime";
-        private const string PROC_MEMORY_OLD = "WorkingSet";
-        private const string PROC_MEMORY_NEW = "WorkingSetPrivate";
-        private const string TIME_STAMP = "TimeStamp_Sys100NS";
-
         public const string FORMAT_NAME = "%pName";
         public const string FORMAT_ID = "%pID";
         public const string FORMAT_CPU_PERCENT = "%CPU";
@@ -23,8 +14,8 @@ namespace PluginTopProcesses
 
         public class Data
         {
-            public string Name;
             public int ProcessId;
+            public string Name;
             public Int64 Memory;
             public double PercentProc;
 
@@ -60,44 +51,20 @@ namespace PluginTopProcesses
         public Int64 CurrentMemory;
         public double PercentProc;
 
-        private static string PropWorkingSet()
+        public Performance(int procId, string name, Int64 timestamp, Int64 procTime, Int64 procMem)
         {
-            if (Environment.OSVersion.Version.Major > 5)
-            {
-                return PROC_MEMORY_NEW;
-            }
-            else
-            {
-                return PROC_MEMORY_OLD;
-            }
+            this.Name = name;
+            this.ProcessId = procId;
+            this.Update(timestamp, procTime, procMem);
         }
 
-        private static string PropProcessId()
-        {
-            if (Environment.OSVersion.Version.Major >= 10)
-            {
-                return PROC_ID_NEW;
-            }
-            else
-            {
-                return PROC_ID_OLD;
-            }
-        }
-
-        public Performance(ManagementObject proc)
-        {
-            this.Update(proc);
-        }
-
-        public void Update(ManagementObject proc)
+        public void Update(Int64 timestamp, Int64 procTime, Int64 procMem)
         {
             this.PreviousProcTime = this.CurrentProcTime;
             this.PreviousTimeStamp = this.CurrentTimeStamp;
-            this.Name = Convert.ToString(proc.GetPropertyValue(PROC_NAME));
-            this.CurrentProcTime = Convert.ToInt64(proc.GetPropertyValue(PROC_TIME));
-            this.CurrentTimeStamp = Convert.ToInt64(proc.GetPropertyValue(TIME_STAMP));
-            this.CurrentMemory = Convert.ToInt64(proc.GetPropertyValue(PropWorkingSet()));
-            this.ProcessId = Convert.ToInt32(proc.GetPropertyValue(PropProcessId()));
+            this.CurrentTimeStamp = timestamp;
+            this.CurrentProcTime = procTime;
+            this.CurrentMemory = procMem;
             this.CalculateProcPercent();
         }
 
@@ -117,11 +84,6 @@ namespace PluginTopProcesses
             {
                 Performance you = (Performance)obj;
                 return this.Name.Equals(you.Name) && this.ProcessId.Equals(you.ProcessId);
-            }
-            else if (object.ReferenceEquals(obj.GetType(), typeof(ManagementObject)))
-            {
-                ManagementObject you = (ManagementObject)obj;
-                return this.Name.Equals(you.GetPropertyValue(PROC_NAME)) && this.ProcessId.Equals(Convert.ToInt32(you.GetPropertyValue(PropProcessId())));
             }
             else
             {
