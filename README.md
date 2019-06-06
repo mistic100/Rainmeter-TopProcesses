@@ -35,13 +35,13 @@ Dedupe=1
 ; Run in asynchronous mode, see bellow
 Async=0
 
-; Pipe-delimited processess to exclude from the list (can handle wildcards, use the % or * character)
-; GlobalIgnoredProcesses is MORE efficient than SpecificIgnoredProcesses as it filters globally (at the Perfmon query)
+; Pipe-delimited processess to exclude from the list (can handle wildcards, use * character)
+; GlobalIgnoredProcesses is MORE efficient than SpecificIgnoredProcesses as it filters globally
 ; If you use GlobalIgnoredProcesses to filter, processes will be excluded from all measures using the TopProcesses plugin
 ; GlobalIgnoredProcesses will only be applied to the measure with ReQuery=1
-GlobalIgnoredProcesses=Idle|%Total|rundll32|wscript|userinit|Rainmeter|svchost*
+GlobalIgnoredProcesses=rundll32|wscript|userinit|Rainmeter|svchost*
 
-; Pipe-delimited processess to exclude from the list (can handle wildcards, use the % or * character)
+; Pipe-delimited processess to exclude from the list (can handle wildcards, use * character)
 ; SpecificIgnoredProcesses is LESS efficient than GlobalIgnoredProcesses as it filters per measure.
 ; The processes below will ONLY be filtered for this measure
 ; SpecificIgnoredProcesses can be used on any measure, regardless of ReQuery value
@@ -106,7 +106,7 @@ The example bellow displays the top two processes by memory usage, with differen
 Measure=Plugin
 Plugin=Plugins\TopProcesses.dll
 ReQuery=1
-GlobalIgnoredProcesses=Idle|%Total|rundll32|wscript|userinit|dwm|Rainmeter|svchost*|System
+GlobalIgnoredProcesses=rundll32|wscript|userinit|dwm|Rainmeter|svchost*|System
 UpdateDivider=30
 
 ; MEASURES
